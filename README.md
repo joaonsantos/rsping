@@ -16,7 +16,6 @@ To run this program you need root permissions.
 
 ```sh
 $ rsping 185.199.111.153 
-[sudo] password for jsantos: 
 PING 185.199.111.153 64 data bytes
 64 bytes from 185.199.111.153: icmp_seq=1 ttl=64 time=12.11 ms
 PING 185.199.111.153 64 data bytes

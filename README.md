@@ -7,7 +7,7 @@
 ```sh
 $ rsping --help
 Usage
-  ./target/debug/rsping target
+  rsping target
 ```
 
 ## Running

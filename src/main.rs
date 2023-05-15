@@ -1,4 +1,4 @@
-use rsping::scanner::Pinger;
+use rsping::ping::Pinger;
 
 fn print_usage(cmd: String) {
     eprint!("Usage\n  {} target\n", cmd)
@@ -18,7 +18,7 @@ fn main() {
         return;
     }
 
-    let mut scanner = Pinger::new(target, String::from("0"));
+    let mut scanner = Pinger::new(target);
     if let Err(e) = scanner.ping() {
         eprintln!("{cmd}: {}", e);
     }

@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
 ctrlc = "3.2.5"
+dns-lookup = "2.0.2"
 socket2 = { version = "0.5.2", features = ["all"] }

@@ -1,22 +1,24 @@
 use crate::icmp;
 
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-use std::error::Error;
+use std::error::{self};
 
-use std::net::{SocketAddr, SocketAddrV6, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddrV6};
 use std::{mem::MaybeUninit, net::SocketAddrV4, time};
 
 use crossbeam::channel::{bounded, select, tick, Receiver};
-use std::io;
+use std::fmt;
 use std::time::Duration;
 
 pub const ECHO_REQUEST4_TYPE: u8 = 8;
 pub const ECHO_REQUEST4_CODE: u8 = 0;
 pub const ECHO_REQUEST6_TYPE: u8 = 128;
 pub const ECHO_REQUEST6_CODE: u8 = 0;
+const ECHO_REQUEST_PORT: u8 = 0;
 
 const PACKET_SIZE: usize = 64;
 const TTL: u32 = 64;
+const HOPS: u8 = 3;
 const MSG: &str = "HELLO FROM RUST";
 
 pub enum EchoRequestPacket {
@@ -52,6 +54,10 @@ impl EchoRequestPacket {
             EchoRequestPacket::V4(packet) => packet.set_seq(seq),
             EchoRequestPacket::V6(packet) => packet.set_seq(seq),
         }
+    }
+
+    pub fn is_ipv6(&self) -> bool {
+        return std::matches!(self, EchoRequestPacket::V6(_));
     }
 }
 
@@ -143,62 +149,63 @@ mod tests {
     }
 }
 
+type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
+
+#[derive(Debug, Clone)]
+struct LookupErr;
+
+impl fmt::Display for LookupErr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "could not lookup target successfully")
+    }
+}
+
+impl error::Error for LookupErr {}
+
 pub struct Pinger {
     target: String,
-    port: String,
     ttl: u32,
     seq: u16,
-    ipv6: bool,
 }
 
 impl Pinger {
     pub fn new(target: String) -> Self {
         let ttl = TTL;
         let seq = 0;
-        let port = "0".to_owned();
-        let ipv6 = false;
-        Self {
-            target,
-            port,
-            ttl,
-            seq,
-            ipv6,
-        }
+        Self { target, ttl, seq }
     }
 
-    pub fn ping(&mut self) -> Result<(), Box<dyn Error>> {
-        let lookup_addrs = match dns_lookup::lookup_host(&self.target) {
-            Ok(x) => Some(x),
-            Err(e) => match e.kind() {
-                io::ErrorKind::InvalidInput => None,
-                _ => return Err(Box::new(e)),
-            },
+    pub fn ping(&mut self) -> Result<()> {
+        // Try to parse target address.
+        let addr: IpAddr = match self.target.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                // If some error is found parsing the address, assume that an hostname was used.
+                //
+                // Try to lookup the respective hostname.
+                match dns_lookup::lookup_host(&self.target) {
+                    Ok(addrs) => match addrs.first() {
+                        Some(addr) => addr.to_owned(),
+                        None => return Err(Box::new(LookupErr)),
+                    },
+                    Err(e) => return Err(Box::new(e)),
+                }
+            }
         };
-
-        let lookup_addrs = lookup_addrs.unwrap();
-        let mut lookup_addrs_iter = lookup_addrs.iter().rev();
-        let mut addr = lookup_addrs_iter.next().unwrap();
-
-        if lookup_addrs.len() > 1 {
-            addr = lookup_addrs_iter.next().unwrap();
-        }
-
         self.target = addr.to_string();
-        self.ipv6 = addr.is_ipv6();
-        dbg!("{}", &self.target);
 
-        let socket = if self.ipv6 {
-            Socket::new(Domain::IPV6, Type::RAW, Some(Protocol::ICMPV6))?
-        } else {
-            Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4))?
-        };
+        let socket: Socket;
+        let mut req: EchoRequestPacket;
 
-        let mut req = if self.ipv6 {
-            EchoRequestPacket::V6(Echo6RequestPacket::new(String::from(MSG)))
+        if addr.is_ipv6() {
+            socket = Socket::new(Domain::IPV6, Type::RAW, Some(Protocol::ICMPV6))?;
+            req = EchoRequestPacket::V6(Echo6RequestPacket::new(String::from(MSG)));
+            socket.set_unicast_hops_v6(HOPS as u32)?;
         } else {
-            EchoRequestPacket::V4(Echo4RequestPacket::new(String::from(MSG)))
-        };
-        socket.set_ttl(self.ttl)?;
+            socket = Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4))?;
+            req = EchoRequestPacket::V4(Echo4RequestPacket::new(String::from(MSG)));
+            socket.set_ttl(self.ttl)?;
+        }
 
         let ctrl_c_events = Self::setup_sigint_handler();
         let ticks = tick(Duration::from_secs(2));
@@ -209,7 +216,7 @@ impl Pinger {
                     self.seq += 1;
                     req.set_seq(self.seq);
 
-                    ping_step(&socket, &mut req, &self.target, "0", self.ipv6)?;
+                    ping_step(&socket, &mut req, &self.target)?;
                 }
                 recv(ctrl_c_events) -> _ => {
                     println!();
@@ -233,28 +240,20 @@ impl Pinger {
     }
 }
 
-fn ping_step(
-    socket: &socket2::Socket,
-    req: &mut EchoRequestPacket,
-    target: &str,
-    port: &str,
-    ipv6: bool,
-) -> Result<(), io::Error> {
+fn ping_step(socket: &socket2::Socket, req: &mut EchoRequestPacket, target: &str) -> Result<()> {
     let mut buf: [u8; PACKET_SIZE] = [0; PACKET_SIZE];
     req.encode(&mut buf);
 
     let tstart = time::Instant::now();
 
-    dbg!("{}", target);
-
     let n: usize;
-    if ipv6 {
-        let addr: SocketAddrV6 = format!("[{}]:{}", "2a00:1450:4003:803::200e", "80")
+    if req.is_ipv6() {
+        let addr: SocketAddrV6 = format!("[{}]:{}", target, ECHO_REQUEST_PORT)
             .parse()
             .unwrap();
         n = socket.send_to(&buf[..], &SockAddr::from(addr))?;
     } else {
-        let addr: SocketAddrV4 = format!("{}:{}", target, port).parse().unwrap();
+        let addr: SocketAddrV4 = format!("{}:{}", target, ECHO_REQUEST_PORT).parse().unwrap();
         n = socket.send_to(&buf[..], &SockAddr::from(addr))?;
     }
     println!("PING {} {} data bytes", target, n);
@@ -263,12 +262,17 @@ fn ping_step(
     let reply_bytes = socket.recv(reply_buf.as_mut_slice())?;
     let rtt = tstart.elapsed().as_secs_f64() * 1000.0;
 
+    let ttl_string = if req.is_ipv6() {
+        format!("hops={}", HOPS)
+    } else {
+        format!("ttl={}", TTL)
+    };
     println!(
-        "{} bytes from {}: icmp_seq={} ttl={} time={:.2} ms",
+        "{} bytes from {}: icmp_seq={} {} time={:.2} ms",
         reply_bytes,
         target,
         req.get_seq(),
-        TTL,
+        ttl_string,
         rtt
     );
     Ok(())

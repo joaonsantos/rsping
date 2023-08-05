@@ -1,2 +1,2 @@
-pub mod icmp;
+pub mod net;
 pub mod ping;

@@ -10,7 +10,7 @@ use rsping::{
 };
 
 fn print_usage(cmd: String) {
-    eprint!("Usage\n  {} payload target\n", cmd)
+    eprint!("Usage\n  {} target payload\n", cmd)
 }
 
 fn setup_sigint_handler() -> Receiver<()> {
@@ -31,14 +31,14 @@ fn main() {
         return;
     }
 
-    let payload = args.next().unwrap_or("".to_string());
-    if payload == "--help" {
+    let target = args.next().unwrap_or("".to_string());
+    if target == "" || target == "--help" {
         print_usage(cmd);
         return;
     }
 
-    let target = args.next().unwrap_or("".to_string());
-    if target == "" || target == "--help" {
+    let payload = args.next().unwrap_or("".to_string());
+    if payload == "--help" {
         print_usage(cmd);
         return;
     }
@@ -71,9 +71,9 @@ fn main() {
                     }
                 }
 
-                // This message should only be printed after one send, which must match seq
-                // number equal to 2.
-                if pinger.seq == 2 {
+                // This message should only be printed after the first send, which must match seq
+                // number equal to 1.
+                if ping_send_resp.seq == 1 {
                     println!("PING {} {} data bytes", target, ping_send_resp.payload_bytes);
                 }
 

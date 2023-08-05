@@ -87,7 +87,7 @@ impl Pinger {
         self.seq += 1;
         Ok(PingSendResult {
             payload_bytes: payload_bytes as u64,
-            seq: self.seq,
+            seq: self.seq - 1,
             ttl: ttl_string,
         })
     }

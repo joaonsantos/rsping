@@ -5,9 +5,9 @@
 
 ## Usage
 
-To use the program pass the UDP payload as utf-8 string and the target. The UDP payload can be empty.
+Pass the UDP payload as an `utf-8` string and the target to ping as arguments. The UDP payload can be empty.
 
-The target can be either and address or an hostname.
+The target can be either an address or an hostname.
 
 Both IPv4 and IPv6 are supported, hostname resolves by default to IPv6 if available.
 ```sh

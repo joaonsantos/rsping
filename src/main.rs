@@ -64,7 +64,8 @@ fn parse_args() -> Args {
 
 fn main() {
     let args = parse_args();
-    let loop_timeout = 2;
+    let loop_timeout = 2u32;
+    let socket_timeout = 2u32;
 
     // Create pinger.
     let timeout = if args.addr.is_ipv6() {
@@ -73,7 +74,7 @@ fn main() {
         TimeoutOption::TTL(icmp::DEFAULT_TTL)
     };
 
-    let mut pinger = Pinger::new(timeout, loop_timeout);
+    let mut pinger = Pinger::new(timeout, socket_timeout);
 
     // Setup ping loop to ping every few seconds while watching for SIGINT.
     let ticks = tick(Duration::from_secs(loop_timeout.into()));
@@ -105,7 +106,7 @@ fn main() {
                 // Wait for any any valid response.
                 match pinger.recv() {
                     Ok(r) => {
-                        if r.reply_bytes != 0 {
+                        if r.reply_bytes == 0 {
                             continue;
                         }
                         ping_recv_resp = r;

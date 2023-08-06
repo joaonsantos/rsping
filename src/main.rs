@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use crossbeam::{
@@ -5,8 +6,8 @@ use crossbeam::{
     select,
 };
 use rsping::{
-    net,
-    ping::{PingRecvResult, PingSendResult, Pinger},
+    net::{self, icmp},
+    ping::{PingRecvResult, PingSendResult, Pinger, TimeoutOption},
 };
 
 fn print_usage(cmd: String) {
@@ -23,37 +24,59 @@ fn setup_sigint_handler() -> Receiver<()> {
     receiver
 }
 
-fn main() {
+struct Args {
+    cmd: String,
+    addr: IpAddr,
+    payload: String,
+}
+
+fn parse_args() -> Args {
     let mut args = std::env::args();
     let cmd = args.next().unwrap();
     if args.len() != 2 {
         print_usage(cmd);
-        return;
+        std::process::exit(2);
     }
 
     let target = args.next().unwrap_or("".to_string());
     if target == "" || target == "--help" {
         print_usage(cmd);
-        return;
+        std::process::exit(2);
     }
 
     let payload = args.next().unwrap_or("".to_string());
     if payload == "--help" {
         print_usage(cmd);
-        return;
+        std::process::exit(2);
     }
 
     let addr = match net::parse(&target) {
         Ok(t) => t,
         Err(err) => {
-            println!("Failed to parse target: {}\n", err);
+            println!("failed to parse target: {}\n", err);
             print_usage(cmd);
-            return;
+            std::process::exit(2);
         }
     };
-    let mut pinger = Pinger::new();
 
-    let ticks = tick(Duration::from_secs(2));
+    Args { cmd, addr, payload }
+}
+
+fn main() {
+    let args = parse_args();
+    let loop_timeout = 2;
+
+    // Create pinger.
+    let timeout = if args.addr.is_ipv6() {
+        TimeoutOption::HOPS(icmp::DEFAULT_HOPS)
+    } else {
+        TimeoutOption::TTL(icmp::DEFAULT_TTL)
+    };
+
+    let mut pinger = Pinger::new(timeout, loop_timeout);
+
+    // Setup ping loop to ping every few seconds while watching for SIGINT.
+    let ticks = tick(Duration::from_secs(loop_timeout.into()));
     let ctrl_c_events = setup_sigint_handler();
 
     loop {
@@ -63,10 +86,12 @@ fn main() {
                 let ping_send_resp: PingSendResult;
                 let ping_recv_resp: PingRecvResult;
 
-                match pinger.send(&addr, &payload) {
-                    Ok(r) => {ping_send_resp = r;},
+                match pinger.send(&args.addr, &args.payload) {
+                    Ok(r) => {
+                        ping_send_resp = r;
+                    },
                     Err(e) => {
-                        eprintln!("{cmd}: {}", e);
+                        eprintln!("{}: {}",args.cmd, e);
                         continue;
                     }
                 }
@@ -74,13 +99,19 @@ fn main() {
                 // This message should only be printed after the first send, which must match seq
                 // number equal to 1.
                 if ping_send_resp.seq == 1 {
-                    println!("PING {} {} data bytes", target, ping_send_resp.payload_bytes);
+                    println!("PING {} {} data bytes", args.addr.to_string(), ping_send_resp.payload_bytes);
                 }
 
+                // Wait for any any valid response.
                 match pinger.recv() {
-                    Ok(r) => {ping_recv_resp = r;},
+                    Ok(r) => {
+                        if r.reply_bytes != 0 {
+                            continue;
+                        }
+                        ping_recv_resp = r;
+                    },
                     Err(e) => {
-                        eprintln!("{cmd}: {}", e);
+                        eprintln!("{}: {}",args.cmd, e);
                         continue;
                     }
                 }
@@ -89,7 +120,7 @@ fn main() {
                 println!(
                     "{} bytes from {}: icmp_seq={} {} time={:.2} ms",
                     ping_recv_resp.reply_bytes,
-                    addr,
+                    args.addr.to_string(),
                     ping_send_resp.seq,
                     ping_send_resp.ttl,
                     rtt
@@ -100,9 +131,5 @@ fn main() {
                 break;
             }
         }
-    }
-
-    if let Err(e) = pinger.send(&addr, &payload) {
-        eprintln!("{cmd}: {}", e);
     }
 }

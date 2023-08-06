@@ -1,3 +1,14 @@
+pub const ECHO_REQUEST4_TYPE: u8 = 8;
+pub const ECHO_REQUEST4_CODE: u8 = 0;
+pub const ECHO_REQUEST6_TYPE: u8 = 128;
+pub const ECHO_REQUEST6_CODE: u8 = 0;
+pub const ECHO_REQUEST_PORT: u8 = 0;
+
+pub const PACKET_SIZE: usize = 64;
+
+pub const DEFAULT_TTL: u32 = 64;
+pub const DEFAULT_HOPS: u32 = 3;
+
 pub enum IcmpProto {
     V4,
     V6,
@@ -65,16 +76,6 @@ fn calculate_checksum(buf: &[u8]) -> u16 {
     let sum = !sum as u16;
     sum
 }
-
-pub const ECHO_REQUEST4_TYPE: u8 = 8;
-pub const ECHO_REQUEST4_CODE: u8 = 0;
-pub const ECHO_REQUEST6_TYPE: u8 = 128;
-pub const ECHO_REQUEST6_CODE: u8 = 0;
-pub const ECHO_REQUEST_PORT: u8 = 0;
-
-pub const PACKET_SIZE: usize = 64;
-pub const TTL: u32 = 64;
-pub const HOPS: u8 = 3;
 
 pub enum EchoRequestPacket {
     V4(Echo4RequestPacket),

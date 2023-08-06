@@ -1,4 +1,4 @@
-use std::{error, fmt};
+use std::fmt;
 
 #[derive(Debug, Clone)]
 pub enum PingRecvErrs {
@@ -12,8 +12,6 @@ impl fmt::Display for PingRecvErrs {
         }
     }
 }
-
-impl error::Error for PingRecvErrs {}
 
 #[derive(Debug, Clone)]
 pub enum PingErrors {
@@ -35,5 +33,3 @@ impl fmt::Display for PingSendError {
         }
     }
 }
-
-impl error::Error for PingSendError {}
